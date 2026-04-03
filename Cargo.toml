@@ -176,6 +176,7 @@ base64 = "0.22.1"
 jsonwebtoken = "9"
 mime_guess = "2.0.5"
 clap_complete = "4.5.0"
+clap_complete_nushell = "4.5.0"
 lru = "0.16.3"
 
 # HTML to Markdown conversion (feature gated)
