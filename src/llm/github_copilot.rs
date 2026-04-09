@@ -143,8 +143,7 @@ impl GithubCopilotProvider {
         // raw <think> tags in content.
         let is_claude = self.model.to_lowercase().contains("claude");
         if is_claude {
-            request =
-                request.header("anthropic-beta", "interleaved-thinking-2025-05-14");
+            request = request.header("anthropic-beta", "interleaved-thinking-2025-05-14");
         }
         tracing::debug!(
             model = %self.model,
@@ -598,14 +597,9 @@ fn convert_messages(messages: Vec<ChatMessage>) -> Vec<OpenAiMessage> {
                 // Round-trip reasoning fields from provider_metadata.
                 // Per Copilot API: only send reasoning_text when
                 // reasoning_opaque is also present.
-                let reasoning_opaque = msg
-                    .provider_metadata
-                    .get("reasoning_opaque")
-                    .cloned();
+                let reasoning_opaque = msg.provider_metadata.get("reasoning_opaque").cloned();
                 let reasoning_text = if reasoning_opaque.is_some() {
-                    msg.provider_metadata
-                        .get("reasoning_text")
-                        .cloned()
+                    msg.provider_metadata.get("reasoning_text").cloned()
                 } else {
                     None
                 };
@@ -644,7 +638,11 @@ fn convert_messages(messages: Vec<ChatMessage>) -> Vec<OpenAiMessage> {
 /// `ChatMessage::provider_metadata` for round-tripping on subsequent turns.
 fn merge_choices(
     choices: &[OpenAiChoice],
-) -> (Option<String>, Vec<ToolCall>, std::collections::HashMap<String, String>) {
+) -> (
+    Option<String>,
+    Vec<ToolCall>,
+    std::collections::HashMap<String, String>,
+) {
     let mut merged_content: Option<String> = None;
     let mut merged_tool_calls: Vec<ToolCall> = Vec::new();
     let mut provider_metadata = std::collections::HashMap::new();

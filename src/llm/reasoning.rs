@@ -839,7 +839,7 @@ Respond in JSON format:
                         "Your previous response contained only internal reasoning \
                          and was not visible to the user. Please continue and \
                          produce your actual response, including any tool calls \
-                         you planned to make."
+                         you planned to make.",
                     ));
                     let retry_tools = context.available_tools.clone();
                     let mut retry_req = ToolCompletionRequest::new(retry_messages, retry_tools)
@@ -853,10 +853,18 @@ Respond in JSON format:
                     match self.llm.complete_with_tools(retry_req).await {
                         Ok(retry_resp) => {
                             let retry_usage = TokenUsage {
-                                input_tokens: usage.input_tokens.saturating_add(retry_resp.input_tokens),
-                                output_tokens: usage.output_tokens.saturating_add(retry_resp.output_tokens),
-                                cache_read_input_tokens: usage.cache_read_input_tokens.saturating_add(retry_resp.cache_read_input_tokens),
-                                cache_creation_input_tokens: usage.cache_creation_input_tokens.saturating_add(retry_resp.cache_creation_input_tokens),
+                                input_tokens: usage
+                                    .input_tokens
+                                    .saturating_add(retry_resp.input_tokens),
+                                output_tokens: usage
+                                    .output_tokens
+                                    .saturating_add(retry_resp.output_tokens),
+                                cache_read_input_tokens: usage
+                                    .cache_read_input_tokens
+                                    .saturating_add(retry_resp.cache_read_input_tokens),
+                                cache_creation_input_tokens: usage
+                                    .cache_creation_input_tokens
+                                    .saturating_add(retry_resp.cache_creation_input_tokens),
                             };
                             if !retry_resp.tool_calls.is_empty() {
                                 // Retry produced tool calls — use them
@@ -868,8 +876,12 @@ Respond in JSON format:
                                     .tool_calls
                                     .into_iter()
                                     .map(|mut tc| {
-                                        if tc.reasoning.as_ref().is_none_or(|r| r.trim().is_empty()) {
-                                            tc.reasoning = narrative.as_ref().filter(|n| !n.is_empty()).cloned();
+                                        if tc.reasoning.as_ref().is_none_or(|r| r.trim().is_empty())
+                                        {
+                                            tc.reasoning = narrative
+                                                .as_ref()
+                                                .filter(|n| !n.is_empty())
+                                                .cloned();
                                         }
                                         tc
                                     })
@@ -893,7 +905,9 @@ Respond in JSON format:
                             let text = if retry_cleaned.trim().is_empty() {
                                 extract_think_content(&retry_text)
                                     .or_else(|| extract_think_content(&content))
-                                    .unwrap_or_else(|| "I'm not sure how to respond to that.".to_string())
+                                    .unwrap_or_else(|| {
+                                        "I'm not sure how to respond to that.".to_string()
+                                    })
                             } else {
                                 retry_cleaned
                             };
@@ -909,8 +923,9 @@ Respond in JSON format:
                         }
                         Err(e) => {
                             tracing::warn!("Retry after think-only response failed: {e}");
-                            let think = extract_think_content(&content)
-                                .unwrap_or_else(|| "I'm not sure how to respond to that.".to_string());
+                            let think = extract_think_content(&content).unwrap_or_else(|| {
+                                "I'm not sure how to respond to that.".to_string()
+                            });
                             Ok(RespondOutput {
                                 result: RespondResult::Text(think),
                                 usage,
@@ -928,7 +943,9 @@ Respond in JSON format:
                         content.len()
                     );
                     Ok(RespondOutput {
-                        result: RespondResult::Text("I'm not sure how to respond to that.".to_string()),
+                        result: RespondResult::Text(
+                            "I'm not sure how to respond to that.".to_string(),
+                        ),
                         usage,
                         finish_reason: response.finish_reason,
                         metadata: ResponseMetadata {
