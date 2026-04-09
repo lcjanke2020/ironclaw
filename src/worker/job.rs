@@ -88,7 +88,14 @@ struct ToolExecResult {
 
 impl Worker {
     /// Create a new worker for a specific job.
+    ///
+    /// Ensures dev tools (shell, file ops) are always available regardless of
+    /// whether the parent agent was running with `allow_local_tools`.
     pub fn new(job_id: Uuid, deps: WorkerDeps) -> Self {
+        // Workers must have dev tools to execute tasks directly.
+        // The parent agent may only have orchestrator-domain tools when
+        // allow_local_tools=false, so register dev tools unconditionally.
+        deps.tools.register_dev_tools();
         Self { job_id, deps }
     }
 
