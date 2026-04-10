@@ -99,6 +99,12 @@ fn macos_plist_content(exe: &str, stdout: &str, stderr: &str) -> String {
   <dict>
     <key>CLI_ENABLED</key>
     <string>false</string>
+    <!-- launchd daemons inherit a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+         which excludes /usr/local/bin (Docker CLI, Homebrew on Intel) and
+         /opt/homebrew/bin (Homebrew on Apple Silicon). Without these, tools
+         like docker, git, and brew are invisible to the daemon. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
   <key>StandardOutPath</key>
   <string>{stdout}</string>
@@ -377,5 +383,11 @@ mod tests {
         let plist = macos_plist_content("/tmp/ironclaw", "/tmp/stdout.log", "/tmp/stderr.log");
         assert!(plist.contains("<key>EnvironmentVariables</key>"));
         assert!(plist.contains("    <key>CLI_ENABLED</key>\n    <string>false</string>"));
+        assert!(
+            plist.contains("<key>PATH</key>"),
+            "plist should set PATH so daemon can find docker, brew, etc."
+        );
+        assert!(plist.contains("/usr/local/bin"));
+        assert!(plist.contains("/opt/homebrew/bin"));
     }
 }

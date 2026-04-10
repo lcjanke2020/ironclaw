@@ -107,17 +107,19 @@ pub struct DockerDetection {
 /// 3. Returns `Available`, `NotInstalled`, or `NotRunning`
 pub async fn check_docker() -> DockerDetection {
     let platform = Platform::current();
+    let binary_found = docker_binary_exists();
 
-    // Step 1: Check if docker binary is on PATH
-    if !docker_binary_exists() {
-        return DockerDetection {
-            status: DockerStatus::NotInstalled,
-            platform,
-        };
-    }
-
-    // Step 2: Try to connect to the daemon
+    // Try to connect to the daemon socket regardless of whether the CLI
+    // binary is on PATH. On macOS, Docker Desktop creates the socket even
+    // when `/usr/local/bin/docker` is absent from the minimal PATH that
+    // launchd daemons inherit.
     if crate::sandbox::connect_docker().await.is_ok() {
+        if !binary_found {
+            tracing::info!(
+                "Docker daemon is reachable but the `docker` CLI binary is not on PATH. \
+                 Container management will use the API socket directly."
+            );
+        }
         return DockerDetection {
             status: DockerStatus::Available,
             platform,
@@ -134,9 +136,17 @@ pub async fn check_docker() -> DockerDetection {
         };
     }
 
-    DockerDetection {
-        status: DockerStatus::NotRunning,
-        platform,
+    // Distinguish "not installed" from "installed but not running".
+    if binary_found {
+        DockerDetection {
+            status: DockerStatus::NotRunning,
+            platform,
+        }
+    } else {
+        DockerDetection {
+            status: DockerStatus::NotInstalled,
+            platform,
+        }
     }
 }
 

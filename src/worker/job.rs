@@ -37,6 +37,20 @@ use crate::worker::autonomous_recovery::{
 };
 use ironclaw_common::AppEvent;
 
+/// Tools that must not be exposed to job workers to prevent infinite
+/// delegation loops (a worker creating sub-jobs that create more sub-jobs).
+const WORKER_DENIED_TOOLS: &[&str] = &["create_job", "list_jobs", "job_status", "cancel_job"];
+
+/// Return tool definitions with job-management tools filtered out.
+async fn worker_tool_definitions(tools: &ToolRegistry) -> Vec<crate::llm::ToolDefinition> {
+    tools
+        .tool_definitions()
+        .await
+        .into_iter()
+        .filter(|td| !WORKER_DENIED_TOOLS.contains(&td.name.as_str()))
+        .collect()
+}
+
 /// Shared dependencies for worker execution.
 ///
 /// This bundles the dependencies that are shared across all workers,
@@ -74,7 +88,14 @@ struct ToolExecResult {
 
 impl Worker {
     /// Create a new worker for a specific job.
+    ///
+    /// Ensures dev tools (shell, file ops) are always available regardless of
+    /// whether the parent agent was running with `allow_local_tools`.
     pub fn new(job_id: Uuid, deps: WorkerDeps) -> Self {
+        // Workers must have dev tools to execute tasks directly.
+        // The parent agent may only have orchestrator-domain tools when
+        // allow_local_tools=false, so register dev tools unconditionally.
+        deps.tools.register_dev_tools();
         Self { job_id, deps }
     }
 
@@ -255,7 +276,9 @@ impl Worker {
 Job: {}
 Description: {}
 
-You have access to tools to complete this job. Plan your approach and execute tools as needed.
+You have access to tools to complete this job. Execute tasks directly using your available tools
+(shell commands, file operations, etc.). Do NOT delegate work by creating sub-jobs — you are the
+executor. Plan your approach and use tools as needed.
 You may request multiple tools at once if they can be executed in parallel.
 Report when the job is complete or if you encounter issues you cannot resolve."#,
             job_ctx.title, job_ctx.description
@@ -325,8 +348,9 @@ Report when the job is complete or if you encounter issues you cannot resolve."#
             .unwrap_or(50) as usize;
         let max_iterations = max_iterations.min(ironclaw_common::MAX_WORKER_ITERATIONS as usize);
 
-        // Initial tool definitions for planning (will be refreshed in loop)
-        reason_ctx.available_tools = self.tools().tool_definitions().await;
+        // Initial tool definitions for planning (will be refreshed in loop).
+        // Filter out job-management tools to prevent infinite delegation loops.
+        reason_ctx.available_tools = worker_tool_definitions(self.tools()).await;
 
         // Generate plan if planning is enabled
         let plan = if self.use_planning() {
@@ -1223,6 +1247,7 @@ impl<'a> JobDelegate<'a> {
             usage: crate::llm::TokenUsage::default(),
             finish_reason: crate::llm::FinishReason::Stop,
             metadata: ResponseMetadata::default(),
+            provider_metadata: std::collections::HashMap::new(),
         })
     }
 
@@ -1271,6 +1296,7 @@ impl<'a> JobDelegate<'a> {
             usage: crate::llm::TokenUsage::default(),
             finish_reason: crate::llm::FinishReason::Stop,
             metadata: ResponseMetadata::default(),
+            provider_metadata: std::collections::HashMap::new(),
         })
     }
 }
@@ -1374,8 +1400,9 @@ impl<'a> LoopDelegate for JobDelegate<'a> {
             );
             reason_ctx.available_tools.clear();
         } else {
-            // Refresh tool definitions so newly built tools become visible
-            reason_ctx.available_tools = self.worker.tools().tool_definitions().await;
+            // Refresh tool definitions so newly built tools become visible.
+            // Filter out job-management tools to prevent infinite delegation loops.
+            reason_ctx.available_tools = worker_tool_definitions(self.worker.tools()).await;
         }
 
         // Claude 4.6 rejects assistant prefill; NEAR AI rejects any non-user-ending
@@ -1411,6 +1438,7 @@ impl<'a> LoopDelegate for JobDelegate<'a> {
                     usage: crate::llm::TokenUsage::default(),
                     finish_reason: crate::llm::FinishReason::ToolUse,
                     metadata: ResponseMetadata::default(),
+                    provider_metadata: std::collections::HashMap::new(),
                 });
             }
             Ok(_) => {} // empty selections, fall through
