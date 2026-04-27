@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::llm::config::RegistryProviderConfig;
 use crate::llm::costs;
 use crate::llm::error::LlmError;
+use crate::llm::tool_schema::{ToolSchemaPolicy, shape_tool_schema};
 use crate::llm::provider::{
     ChatMessage, CompletionRequest, CompletionResponse, FinishReason, LlmProvider, Role, ToolCall,
     ToolCompletionRequest, ToolCompletionResponse, strip_unsupported_completion_params,
@@ -83,6 +84,16 @@ impl AnthropicOAuthProvider {
     /// Strip unsupported fields from a `CompletionRequest` in place.
     fn strip_unsupported_completion_params(&self, req: &mut CompletionRequest) {
         strip_unsupported_completion_params(&self.unsupported_params, req);
+    }
+
+    /// Anthropic deprecated the `temperature` parameter for the newest
+    /// reasoning-tier models (Claude 4.7 family). Sending it returns
+    /// HTTP 400 "`temperature` is deprecated for this model.". Detect by
+    /// model ID and strip at the provider boundary so we don't have to
+    /// touch every upstream caller.
+    fn temperature_supported_for(model: &str) -> bool {
+        let lower = model.to_ascii_lowercase();
+        !lower.contains("-4-7")
     }
 
     /// Strip unsupported fields from a `ToolCompletionRequest` in place.
@@ -247,12 +258,17 @@ impl LlmProvider for AnthropicOAuthProvider {
         self.strip_unsupported_completion_params(&mut req);
         let (system, messages) = convert_messages(req.messages);
 
+        let temperature = if Self::temperature_supported_for(&model) {
+            req.temperature
+        } else {
+            None
+        };
         let request = AnthropicRequest {
             model,
             messages,
             system,
             max_tokens: req.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
-            temperature: req.temperature,
+            temperature,
             tools: None,
             tool_choice: None,
         };
@@ -287,13 +303,26 @@ impl LlmProvider for AnthropicOAuthProvider {
         self.strip_unsupported_tool_params(&mut req);
         let (system, messages) = convert_messages(req.messages);
 
+        // Anthropic rejects oneOf/anyOf/allOf/enum/not at the top level of
+        // input_schema. Route through shape_tool_schema (FlattenOnly) so this
+        // direct-HTTP path matches the sanitization the rig-based Anthropic
+        // path and nearai_chat.rs already perform — sibling site missed by
+        // PR #2951.
         let tools: Vec<AnthropicTool> = req
             .tools
             .into_iter()
-            .map(|t| AnthropicTool {
-                name: t.name,
-                description: t.description,
-                input_schema: t.parameters,
+            .map(|t| {
+                let mut description = t.description.clone();
+                let input_schema = shape_tool_schema(
+                    ToolSchemaPolicy::FlattenOnly,
+                    &t.parameters,
+                    &mut description,
+                );
+                AnthropicTool {
+                    name: t.name,
+                    description,
+                    input_schema,
+                }
             })
             .collect();
 
@@ -317,12 +346,17 @@ impl LlmProvider for AnthropicOAuthProvider {
             },
         });
 
+        let temperature = if Self::temperature_supported_for(&model) {
+            req.temperature
+        } else {
+            None
+        };
         let request = AnthropicRequest {
             model,
             messages,
             system,
             max_tokens: req.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
-            temperature: req.temperature,
+            temperature,
             tools: if tools.is_empty() { None } else { Some(tools) },
             tool_choice,
         };
