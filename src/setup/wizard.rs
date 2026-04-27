@@ -648,13 +648,17 @@ impl SetupWizard {
             print_info(&format!("Existing database URL: {}", display_url));
 
             if confirm("Use this database?", true).map_err(SetupError::Io)? {
-                if let Err(e) = self.test_database_connection_postgres(url).await {
-                    print_error(&format!("Connection failed: {}", e));
-                    print_info("Let's configure a new database URL.");
-                } else {
-                    print_success("Database connection successful");
-                    self.settings.database_url = Some(url.clone());
-                    return Ok(());
+                // Route through finish_postgres_auto_setup so the
+                // connection-test + migrations sequence matches the
+                // auto-setup path. PR #2309 fixed the same skipped-
+                // migrations bug in `auto_setup_database`; this branch
+                // was the remaining sibling site.
+                match self.finish_postgres_auto_setup(url.clone()).await {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        print_error(&format!("Setup failed: {}", e));
+                        print_info("Let's configure a new database URL.");
+                    }
                 }
             }
         }
